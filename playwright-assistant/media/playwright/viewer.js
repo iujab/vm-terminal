@@ -915,6 +915,50 @@
     // Expose sendAction globally for voice control module
     window.sendPlaywrightAction = sendAction;
 
+    // URL bar navigation
+    const urlBar = document.getElementById('url-bar');
+    if (urlBar) {
+        urlBar.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                let url = urlBar.value.trim();
+                if (url) {
+                    // Add protocol if missing
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                        url = 'https://' + url;
+                    }
+                    console.log('Navigating to:', url);
+                    sendAction({ type: 'navigate', url });
+                }
+            }
+        });
+    }
+
+    // Navigation button handlers
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            console.log('Back button clicked');
+            sendAction({ type: 'back' });
+        });
+    }
+
+    const forwardBtn = document.getElementById('forward-btn');
+    if (forwardBtn) {
+        forwardBtn.addEventListener('click', () => {
+            console.log('Forward button clicked');
+            sendAction({ type: 'forward' });
+        });
+    }
+
+    const reloadBtn = document.getElementById('reload-btn');
+    if (reloadBtn) {
+        reloadBtn.addEventListener('click', () => {
+            console.log('Reload button clicked');
+            sendAction({ type: 'reload' });
+        });
+    }
+
     // Click handling with coordinate translation
     clickOverlay.addEventListener('click', (e) => {
         if (currentMode !== 'screenshot') return;

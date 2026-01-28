@@ -68,7 +68,7 @@ interface ResponseMessage {
     element?: ElementInfo | null;
     enabled?: boolean;
     tabs?: Tab[];
-    tab?: Tab;
+    tab?: Tab | null;
     tabId?: string;
     activeTabId?: string;
 }
@@ -519,7 +519,7 @@ class PlaywrightServer {
                     break;
 
                 case 'snapshot':
-                    const snapshot = await page.accessibility.snapshot();
+                    const snapshot = await (page as any).accessibility.snapshot();
                     response = {
                         id: message.id,
                         type: 'snapshot',

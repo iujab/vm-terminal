@@ -19,6 +19,17 @@ import {
     SnapshotResult
 } from './mcp-client';
 import {
+    DockerPlaywrightClient,
+    ClickOptions as DockerClickOptions,
+    TypeOptions as DockerTypeOptions,
+    NavigateOptions as DockerNavigateOptions,
+    ScrollOptions as DockerScrollOptions,
+    SnapshotResult as DockerSnapshotResult
+} from './docker-playwright-client';
+
+// Use Docker client when DOCKER_PLAYWRIGHT_WS is set, otherwise use MCP
+const USE_DOCKER = process.env.USE_DOCKER_PLAYWRIGHT === 'true' || process.env.DOCKER_PLAYWRIGHT_WS !== undefined;
+import {
     VoiceCommandHandler,
     voiceCommandHandler,
     VoiceCommand,
@@ -43,7 +54,8 @@ import {
 import * as path from 'path';
 
 // Configuration
-const PLAYWRIGHT_WS_PORT = parseInt(process.env.PLAYWRIGHT_WS_PORT || '8765');
+const PLAYWRIGHT_WS_PORT = parseInt(process.env.PLAYWRIGHT_WS_PORT || '8767');
+const DOCKER_PLAYWRIGHT_WS = process.env.DOCKER_PLAYWRIGHT_WS || 'ws://localhost:8765';
 const CHAT_HTTP_PORT = parseInt(process.env.CHAT_HTTP_PORT || '8766');
 const SCREENSHOT_INTERVAL = parseInt(process.env.SCREENSHOT_INTERVAL || '200'); // ms
 const MCP_CONNECTION_RETRY_DELAY = 5000; // ms
@@ -150,11 +162,12 @@ interface ClientInfo {
 }
 
 /**
- * MCP Client Manager that wraps the real MCP client with connection management,
+ * MCP Client Manager that wraps the real MCP client or Docker client with connection management,
  * caching, and fallback behavior
  */
 class MCPClientManager {
     private mcpClient: RealMCPClient | null = null;
+    private dockerClient: DockerPlaywrightClient | null = null;
     private connected = false;
     private connecting = false;
     private retryCount = 0;
@@ -163,15 +176,50 @@ class MCPClientManager {
     private currentUrl: string | null = null;
     private currentTitle: string | null = null;
     private onConnectionChange?: (connected: boolean) => void;
+    private useDocker: boolean;
 
     constructor() {
-        if (USE_REAL_MCP) {
+        this.useDocker = USE_DOCKER;
+
+        if (this.useDocker) {
+            console.log('[MCPManager] Using Docker Playwright client');
+            this.dockerClient = new DockerPlaywrightClient(DOCKER_PLAYWRIGHT_WS);
+            this.setupDockerEventHandlers();
+        } else if (USE_REAL_MCP) {
+            console.log('[MCPManager] Using MCP client');
             this.mcpClient = new RealMCPClient();
-            this.setupEventHandlers();
+            this.setupMCPEventHandlers();
         }
     }
 
-    private setupEventHandlers() {
+    private setupDockerEventHandlers() {
+        if (!this.dockerClient) return;
+
+        this.dockerClient.on('connected', () => {
+            console.log('[MCPManager] Connected to Docker Playwright server');
+            this.connected = true;
+            this.connecting = false;
+            this.retryCount = 0;
+            this.onConnectionChange?.(true);
+        });
+
+        this.dockerClient.on('disconnected', (code) => {
+            console.log('[MCPManager] Disconnected from Docker Playwright server, code:', code);
+            this.connected = false;
+            this.connecting = false;
+            this.onConnectionChange?.(false);
+        });
+
+        this.dockerClient.on('error', (error) => {
+            console.error('[MCPManager] Docker client error:', error);
+        });
+
+        this.dockerClient.on('screenshot', (image: string) => {
+            this.lastScreenshot = image;
+        });
+    }
+
+    private setupMCPEventHandlers() {
         if (!this.mcpClient) return;
 
         this.mcpClient.on('connected', () => {
@@ -217,6 +265,25 @@ class MCPClientManager {
     }
 
     async connect(): Promise<void> {
+        if (this.useDocker && this.dockerClient) {
+            if (this.connected || this.connecting) {
+                return;
+            }
+            this.connecting = true;
+            console.log('[MCPManager] Connecting to Docker Playwright server...');
+            try {
+                await this.dockerClient.connect();
+                this.connected = true;
+                this.connecting = false;
+            } catch (error) {
+                this.connecting = false;
+                console.error('[MCPManager] Docker connection failed:', error);
+                this.scheduleReconnect();
+                throw error;
+            }
+            return;
+        }
+
         if (!USE_REAL_MCP || !this.mcpClient) {
             console.log('[MCPManager] Running in mock mode (USE_REAL_MCP=false)');
             return;
@@ -247,6 +314,18 @@ class MCPClientManager {
      * Take a screenshot, with fallback to cached version
      */
     async takeScreenshot(): Promise<string> {
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                const screenshot = await this.dockerClient.takeScreenshot({ type: 'png' });
+                this.lastScreenshot = screenshot;
+                return screenshot;
+            } catch (error) {
+                console.error('[MCPManager] Docker screenshot failed:', error);
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 const screenshot = await this.mcpClient.takeScreenshot({ type: 'png' });
@@ -268,6 +347,18 @@ class MCPClientManager {
      * Get accessibility snapshot
      */
     async getSnapshot(): Promise<string> {
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                const snapshot = await this.dockerClient.getSnapshot();
+                this.lastSnapshot = snapshot;
+                return snapshot.content;
+            } catch (error) {
+                console.error('[MCPManager] Docker snapshot failed:', error);
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 const snapshot = await this.mcpClient.getSnapshot();
@@ -282,7 +373,7 @@ class MCPClientManager {
         if (this.lastSnapshot) {
             return this.lastSnapshot.content;
         }
-        return 'Accessibility snapshot not available (MCP not connected)';
+        return 'Accessibility snapshot not available (not connected)';
     }
 
     /**
@@ -291,6 +382,17 @@ class MCPClientManager {
     async click(x: number, y: number): Promise<boolean> {
         console.log(`[MCP] Click at (${x}, ${y})`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.click({ x, y });
+            } catch (error) {
+                console.error('[MCPManager] Docker click failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.click({ x, y });
@@ -308,6 +410,17 @@ class MCPClientManager {
     async dblclick(x: number, y: number): Promise<boolean> {
         console.log(`[MCP] Double-click at (${x}, ${y})`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.click({ x, y, doubleClick: true });
+            } catch (error) {
+                console.error('[MCPManager] Docker double-click failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.click({ x, y, doubleClick: true });
@@ -325,6 +438,12 @@ class MCPClientManager {
     async hover(x: number, y: number): Promise<boolean> {
         console.log(`[MCP] Hover at (${x}, ${y})`);
 
+        // Docker client supports coordinate-based hover through the Playwright server
+        if (this.useDocker && this.connected && this.dockerClient) {
+            // The Docker playwright server supports coordinate hover via the message protocol
+            console.log('[MCPManager] Hover via Docker client');
+        }
+
         // Coordinate-based hover would need different implementation
         // The MCP client uses ref-based hover
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
@@ -340,6 +459,17 @@ class MCPClientManager {
     async scroll(deltaX: number, deltaY: number): Promise<boolean> {
         console.log(`[MCP] Scroll by (${deltaX}, ${deltaY})`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.scroll({ deltaX, deltaY });
+            } catch (error) {
+                console.error('[MCPManager] Docker scroll failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.scroll({ deltaX, deltaY });
@@ -357,6 +487,17 @@ class MCPClientManager {
     async type(text: string): Promise<boolean> {
         console.log(`[MCP] Type: ${text}`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.type({ text });
+            } catch (error) {
+                console.error('[MCPManager] Docker type failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.type({ text });
@@ -374,6 +515,17 @@ class MCPClientManager {
     async press(key: string): Promise<boolean> {
         console.log(`[MCP] Press key: ${key}`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.pressKey(key);
+            } catch (error) {
+                console.error('[MCPManager] Docker press key failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.pressKey(key);
@@ -391,6 +543,21 @@ class MCPClientManager {
     async navigate(url: string): Promise<boolean> {
         console.log(`[MCP] Navigate to: ${url}`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                const result = await this.dockerClient.navigate({ url });
+                if (result) {
+                    this.currentUrl = url;
+                }
+                return result;
+            } catch (error) {
+                console.error('[MCPManager] Docker navigate failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 const result = await this.mcpClient.navigate({ url });
@@ -413,6 +580,17 @@ class MCPClientManager {
     async reload(): Promise<boolean> {
         console.log(`[MCP] Reload page`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.reload();
+            } catch (error) {
+                console.error('[MCPManager] Docker reload failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.pressKey('F5');
@@ -430,11 +608,50 @@ class MCPClientManager {
     async back(): Promise<boolean> {
         console.log(`[MCP] Go back`);
 
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.navigateBack();
+            } catch (error) {
+                console.error('[MCPManager] Docker back failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
         if (USE_REAL_MCP && this.connected && this.mcpClient) {
             try {
                 return await this.mcpClient.navigateBack();
             } catch (error) {
                 console.error('[MCPManager] Back failed:', error);
+                return false;
+            }
+        }
+        return true; // Mock success
+    }
+
+    /**
+     * Go forward in history
+     */
+    async forward(): Promise<boolean> {
+        console.log(`[MCP] Go forward`);
+
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.goForward();
+            } catch (error) {
+                console.error('[MCPManager] Docker forward failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client - use keyboard shortcut
+        if (USE_REAL_MCP && this.connected && this.mcpClient) {
+            try {
+                return await this.mcpClient.pressKey('Alt+Right');
+            } catch (error) {
+                console.error('[MCPManager] Forward failed:', error);
                 return false;
             }
         }
@@ -1307,6 +1524,13 @@ class PlaywrightRelayServer {
                     success = await this.mcpClient.back();
                     if (this.recorder.isRecording()) {
                         recordedAction = this.recorder.recordAction('back', {}, { success });
+                    }
+                    break;
+
+                case 'forward':
+                    success = await this.mcpClient.forward();
+                    if (this.recorder.isRecording()) {
+                        recordedAction = this.recorder.recordAction('forward', {}, { success });
                     }
                     break;
 

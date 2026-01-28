@@ -146,6 +146,12 @@ cd "$BACKEND_DIR"
 # Set environment variables
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 
+# When using VM, tell backend to use Docker Playwright client
+if [ "$USE_VM" = true ]; then
+    export USE_DOCKER_PLAYWRIGHT=true
+    export DOCKER_PLAYWRIGHT_WS="ws://localhost:8765"
+fi
+
 node dist/playwright-relay.js &
 BACKEND_PID=$!
 
@@ -168,10 +174,11 @@ if [ "$SKIP_VSCODE" = false ]; then
     echo -e "${GREEN}=== Services Ready ===${NC}"
     echo ""
     echo "  VSCode:        http://localhost:3000"
-    echo "  Playwright WS: ws://localhost:8765"
+    echo "  Backend WS:    ws://localhost:8767"
     echo "  Chat API:      http://localhost:8766/chat"
 
     if [ "$USE_VM" = true ]; then
+        echo "  Docker PW:     ws://localhost:8765"
         echo "  noVNC:         http://localhost:6080/vnc.html"
     fi
 
@@ -185,10 +192,11 @@ else
     echo ""
     echo -e "${GREEN}=== Backend Services Ready ===${NC}"
     echo ""
-    echo "  Playwright WS: ws://localhost:8765"
+    echo "  Backend WS:    ws://localhost:8767"
     echo "  Chat API:      http://localhost:8766/chat"
 
     if [ "$USE_VM" = true ]; then
+        echo "  Docker PW:     ws://localhost:8765"
         echo "  noVNC:         http://localhost:6080/vnc.html"
     fi
 
