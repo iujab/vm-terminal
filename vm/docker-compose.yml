@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  playwright-vm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: playwright-vm
+    ports:
+      # VNC direct access (optional, for debugging)
+      - "5900:5900"
+      # noVNC web access
+      - "6080:6080"
+      # Chrome DevTools Protocol
+      - "9222:9222"
+      # Playwright WebSocket server
+      - "8765:8765"
+    environment:
+      - DISPLAY=:99
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+      - SCREEN_DEPTH=24
+      - SCREENSHOT_INTERVAL=200
+    volumes:
+      # Persist Chrome data
+      - chrome-data:/root/.config/google-chrome
+      # Share files with host (optional)
+      - ./shared:/app/shared
+    shm_size: '2gb'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  chrome-data:

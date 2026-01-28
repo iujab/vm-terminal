@@ -1,0 +1,21 @@
+{
+  "name": "playwright-vm",
+  "version": "1.0.0",
+  "description": "Playwright server running inside VM container",
+  "main": "dist/playwright-server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/playwright-server.js",
+    "dev": "ts-node playwright-server.ts"
+  },
+  "dependencies": {
+    "playwright": "^1.41.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}

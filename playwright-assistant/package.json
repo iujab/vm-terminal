@@ -1,0 +1,203 @@
+{
+  "name": "playwright-assistant",
+  "displayName": "Playwright Assistant",
+  "description": "Live Playwright viewer with click passthrough, chatbot interface, and collaboration features",
+  "version": "1.0.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "Testing", "Debuggers"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "playwright-assistant-container",
+          "title": "Playwright Assistant",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "playwright-assistant-container": [
+        {
+          "type": "webview",
+          "id": "playwrightViewer",
+          "name": "Playwright Viewer"
+        },
+        {
+          "type": "webview",
+          "id": "chatbotPanel",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "playwrightAssistant.refresh",
+        "title": "Refresh Screenshot",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.clearChat",
+        "title": "Clear Chat History",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.toggleInspector",
+        "title": "Toggle DOM Inspector",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.startRecording",
+        "title": "Start Session Recording",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.stopRecording",
+        "title": "Stop Session Recording",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.exportCode",
+        "title": "Export Generated Code",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.clearRecording",
+        "title": "Clear Recording",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.toggleAnnotationMode",
+        "title": "Toggle Annotation Mode",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.toggleVoice",
+        "title": "Toggle Voice Control",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.createSession",
+        "title": "Create Collaboration Session",
+        "category": "Playwright Assistant"
+      },
+      {
+        "command": "playwrightAssistant.generateCode",
+        "title": "Generate Playwright Code from Recording",
+        "category": "Playwright Assistant"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "playwrightAssistant.toggleInspector",
+        "key": "ctrl+shift+i",
+        "when": "playwrightAssistant.viewerFocused"
+      },
+      {
+        "command": "playwrightAssistant.toggleVoice",
+        "key": "ctrl+shift+v",
+        "when": "playwrightAssistant.viewerFocused"
+      }
+    ],
+    "configuration": {
+      "title": "Playwright Assistant",
+      "properties": {
+        "playwrightAssistant.relayServerUrl": {
+          "type": "string",
+          "default": "ws://localhost:8765",
+          "description": "WebSocket URL for the Playwright relay server"
+        },
+        "playwrightAssistant.screenshotInterval": {
+          "type": "number",
+          "default": 200,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Screenshot refresh interval in milliseconds"
+        },
+        "playwrightAssistant.chatApiUrl": {
+          "type": "string",
+          "default": "http://localhost:8766/chat",
+          "description": "Chat API endpoint URL"
+        },
+        "playwrightAssistant.vncUrl": {
+          "type": "string",
+          "default": "ws://localhost:6080/websockify",
+          "description": "noVNC WebSocket URL for direct VNC mode"
+        },
+        "playwrightAssistant.enableStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming responses from Claude API"
+        },
+        "playwrightAssistant.enableInspector": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable DOM inspector overlay"
+        },
+        "playwrightAssistant.enableRecording": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable session recording feature"
+        },
+        "playwrightAssistant.enableVoice": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable voice control (requires microphone access)"
+        },
+        "playwrightAssistant.enableCollaboration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable collaboration features"
+        },
+        "playwrightAssistant.recordingsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for saving session recordings (defaults to extension storage)"
+        },
+        "playwrightAssistant.codeGenFormat": {
+          "type": "string",
+          "enum": ["playwright", "puppeteer", "selenium"],
+          "default": "playwright",
+          "description": "Default format for generated test code"
+        },
+        "playwrightAssistant.codeGenLanguage": {
+          "type": "string",
+          "enum": ["typescript", "javascript", "python"],
+          "default": "typescript",
+          "description": "Default language for generated test code"
+        },
+        "playwrightAssistant.defaultViewMode": {
+          "type": "string",
+          "enum": ["screenshot", "vnc"],
+          "default": "screenshot",
+          "description": "Default viewer mode"
+        },
+        "playwrightAssistant.showTabBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show browser tab bar in viewer"
+        },
+        "playwrightAssistant.showToolbar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show navigation toolbar in viewer"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "npm run compile",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
