@@ -1,6 +1,7 @@
+import 'dotenv/config';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { ClaudeClient, BrowserContext, ConversationMessage } from './claude-client';
+import { ClaudeClient, BrowserContext, ConversationMessage, ToolExecutor } from './claude-client';
 import {
     ControlCoordinator,
     createControlCoordinator,
@@ -405,6 +406,119 @@ class MCPClientManager {
     }
 
     /**
+     * Click on an element by ref (from accessibility snapshot)
+     */
+    async clickRef(ref: string): Promise<boolean> {
+        console.log(`[MCP] Click ref: ${ref}`);
+
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.click({ ref });
+            } catch (error) {
+                console.error('[MCPManager] Docker clickRef failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
+        if (USE_REAL_MCP && this.connected && this.mcpClient) {
+            try {
+                return await this.mcpClient.click({ ref });
+            } catch (error) {
+                console.error('[MCPManager] ClickRef failed:', error);
+                return false;
+            }
+        }
+        return true; // Mock success
+    }
+
+    /**
+     * Type text into an element by ref (from accessibility snapshot)
+     */
+    async typeRef(ref: string, text: string): Promise<boolean> {
+        console.log(`[MCP] Type into ref ${ref}: ${text}`);
+
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.type({ ref, text });
+            } catch (error) {
+                console.error('[MCPManager] Docker typeRef failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
+        if (USE_REAL_MCP && this.connected && this.mcpClient) {
+            try {
+                return await this.mcpClient.type({ ref, text });
+            } catch (error) {
+                console.error('[MCPManager] TypeRef failed:', error);
+                return false;
+            }
+        }
+        return true; // Mock success
+    }
+
+    /**
+     * Navigate back in browser history
+     */
+    async goBack(): Promise<boolean> {
+        console.log(`[MCP] Go back`);
+
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.navigateBack();
+            } catch (error) {
+                console.error('[MCPManager] Docker goBack failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client
+        if (USE_REAL_MCP && this.connected && this.mcpClient) {
+            try {
+                return await this.mcpClient.navigateBack();
+            } catch (error) {
+                console.error('[MCPManager] GoBack failed:', error);
+                return false;
+            }
+        }
+        return true; // Mock success
+    }
+
+    /**
+     * Navigate forward in browser history
+     */
+    async goForward(): Promise<boolean> {
+        console.log(`[MCP] Go forward`);
+
+        // Try Docker client first
+        if (this.useDocker && this.connected && this.dockerClient) {
+            try {
+                return await this.dockerClient.goForward();
+            } catch (error) {
+                console.error('[MCPManager] Docker goForward failed:', error);
+                return false;
+            }
+        }
+
+        // Try MCP client - navigateForward may not exist, try pressKey
+        if (USE_REAL_MCP && this.connected && this.mcpClient) {
+            try {
+                // Use keyboard shortcut for forward navigation
+                return await this.mcpClient.pressKey('Alt+Right');
+            } catch (error) {
+                console.error('[MCPManager] GoForward failed:', error);
+                return false;
+            }
+        }
+        return true; // Mock success
+    }
+
+    /**
      * Double-click at coordinates
      */
     async dblclick(x: number, y: number): Promise<boolean> {
@@ -659,7 +773,7 @@ class MCPClientManager {
     }
 
     /**
-     * Get browser context for Claude API
+     * Get browser context for Claude API (cached)
      */
     getBrowserContext(): BrowserContext {
         return {
@@ -667,6 +781,37 @@ class MCPClientManager {
             title: this.currentTitle || undefined,
             snapshot: this.lastSnapshot?.content || undefined
         };
+    }
+
+    /**
+     * Get fresh browser context by fetching current snapshot
+     */
+    async getFreshBrowserContext(): Promise<BrowserContext> {
+        try {
+            const snapshot = await this.getSnapshot();
+            // Parse URL and title from snapshot if available
+            // The snapshot typically starts with page info
+            const lines = snapshot.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('- URL:')) {
+                    this.currentUrl = line.replace('- URL:', '').trim();
+                } else if (line.startsWith('URL:')) {
+                    this.currentUrl = line.replace('URL:', '').trim();
+                } else if (line.startsWith('- Title:')) {
+                    this.currentTitle = line.replace('- Title:', '').trim();
+                } else if (line.startsWith('Title:')) {
+                    this.currentTitle = line.replace('Title:', '').trim();
+                }
+            }
+            return {
+                url: this.currentUrl || undefined,
+                title: this.currentTitle || undefined,
+                snapshot: snapshot || undefined
+            };
+        } catch (error) {
+            console.error('[MCPManager] Failed to get fresh browser context:', error);
+            return this.getBrowserContext();
+        }
     }
 
     /**
@@ -1764,10 +1909,20 @@ class ChatServer {
                             this.claudeClient.clearHistory();
                         }
 
-                        // Get browser context from Playwright relay if available
+                        // Get fresh browser context from Playwright relay if available
                         let context = request.context;
                         if (!context && this.playwrightRelay) {
-                            context = this.playwrightRelay.getMCPClient().getBrowserContext();
+                            try {
+                                context = await this.playwrightRelay.getMCPClient().getFreshBrowserContext();
+                                console.log('[Chat] Got fresh browser context:', {
+                                    url: context.url,
+                                    title: context.title,
+                                    hasSnapshot: !!context.snapshot
+                                });
+                            } catch (error) {
+                                console.error('[Chat] Failed to get fresh context:', error);
+                                context = this.playwrightRelay.getMCPClient().getBrowserContext();
+                            }
                         }
 
                         if (request.stream) {
@@ -1800,6 +1955,35 @@ class ChatServer {
 
     setPlaywrightRelay(relay: PlaywrightRelayServer) {
         this.playwrightRelay = relay;
+
+        // Create tool executor that bridges Claude to browser actions
+        const mcpClient = relay.getMCPClient();
+        const toolExecutor: ToolExecutor = {
+            navigate: async (url: string) => {
+                return mcpClient.navigate(url);
+            },
+            click: async (ref: string) => {
+                return mcpClient.clickRef(ref);
+            },
+            type: async (ref: string, text: string) => {
+                return mcpClient.typeRef(ref, text);
+            },
+            scroll: async (direction: 'up' | 'down', amount?: number) => {
+                return mcpClient.scroll(0, direction === 'down' ? (amount || 300) : -(amount || 300));
+            },
+            getSnapshot: async () => {
+                return mcpClient.getSnapshot();
+            },
+            goBack: async () => {
+                return mcpClient.goBack();
+            },
+            goForward: async () => {
+                return mcpClient.goForward();
+            }
+        };
+
+        this.claudeClient.setToolExecutor(toolExecutor);
+        console.log('[Chat] Tool executor connected to Claude client');
     }
 
     private async handleNonStreamingChat(

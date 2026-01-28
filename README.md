@@ -1,278 +1,193 @@
-# Playwright Assistant
+# Claude Code Browser Viewer
 
-A browser automation system featuring a VSCode extension interface, WebSocket-based relay server, and Docker containerization for sandboxed browser control. Integrates with the Anthropic Claude API for AI-powered browser interaction.
+A lightweight setup for using Claude Code CLI with Playwright browser automation, featuring a real-time browser viewer integrated into VSCode.
 
 ## Quick Start
 
 ```bash
-# Basic startup (backend + VSCode IDE)
-./start.sh
+# Start everything
+./start-simple.sh
 
-# With Docker VM for sandboxed browser
-./start.sh --vm
+# Open VSCode in browser
+# http://localhost:3000
 
-# Build Docker image first, then start
-./start.sh --build-vm
+# Open browser viewer (separate tab)
+# http://localhost:6080/vnc.html
 ```
 
-**Requirements:**
-- Node.js v18+ (v20 recommended)
-- Docker & Docker Compose (optional, for `--vm` mode)
-- `ANTHROPIC_API_KEY` environment variable (for chat functionality)
-
-## Architecture Overview
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    User Browser (localhost:3000)                │
-│                         OpenVSCode Server                       │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │
-┌────────────────────────────────┴────────────────────────────────┐
-│              Playwright Assistant VSCode Extension              │
-│  ┌─────────────────────────┬──────────────────────────────────┐│
-│  │   Playwright Viewer     │         Chat Panel               ││
-│  │  - Live screenshots     │  - Claude AI integration         ││
-│  │  - Click passthrough    │  - Context-aware responses       ││
-│  │  - Tab management       │  - Streaming support             ││
-│  └─────────────────────────┴──────────────────────────────────┘│
-└────────────────────────────────┬────────────────────────────────┘
-                                 │ WebSocket + HTTP
-┌────────────────────────────────┴────────────────────────────────┐
-│                  Backend Relay Server (Node.js)                 │
-│  - WebSocket server (port 8767)                                 │
-│  - Chat API (port 8766)                                         │
-│  - Control coordination, session recording, code generation     │
-└──────────────┬──────────────────────────────────────────────────┘
-               │
-┌──────────────┴──────────────┐
-│    Docker VM (optional)     │
-│  - Chrome + Playwright      │
-│  - VNC/noVNC access         │
-│  - Sandboxed environment    │
-└─────────────────────────────┘
+│                OpenVSCode Server (localhost:3000)               │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Terminal                                                 │  │
+│  │  └── claude (Claude Code CLI)                             │  │
+│  │       └── @playwright/mcp (official MCP server)           │  │
+│  │            └── Chromium Browser (headed, on display :99)  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Browser Viewer Extension (sidebar)                       │  │
+│  │  └── Opens noVNC in new browser tab                       │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Virtual Display Stack                         │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
+│  │   Xvfb      │───▶│   x11vnc    │───▶│   websockify/noVNC  │  │
+│  │  :99        │    │   :5900     │    │   :6080             │  │
+│  │  (display)  │    │   (VNC)     │    │   (web viewer)      │  │
+│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+## How It Works
+
+### The Display Pipeline
+
+1. **Xvfb (Virtual Framebuffer)** - Creates a fake monitor (display :99) in memory. The Playwright browser opens here instead of your physical screen.
+
+2. **x11vnc (VNC Server)** - Captures the virtual display and shares it over the VNC protocol on port 5900.
+
+3. **websockify (WebSocket Proxy)** - Converts VNC protocol to WebSocket so it can work in a browser. Serves noVNC on port 6080.
+
+4. **noVNC (Web Viewer)** - JavaScript VNC client that runs in your browser, letting you see and interact with the virtual display.
+
+### The Claude Code Flow
+
+1. You run `claude` in the VSCode terminal
+2. Claude Code has access to `@playwright/mcp` (configured in `~/.claude.json`)
+3. When Claude uses Playwright, it launches a browser on display :99
+4. The browser appears in the noVNC viewer
+5. You can watch Claude navigate, click, and interact in real-time
 
 ## Project Structure
 
 ```
 terminalproject/
-├── backend/                    # Node.js relay server
-│   ├── playwright-relay.ts     # Main WebSocket + HTTP server
-│   ├── docker-playwright-client.ts  # Docker WebSocket client
-│   ├── claude-client.ts        # Anthropic Claude API integration
-│   ├── code-generator.ts       # Test code generation from recordings
-│   ├── session-recorder.ts     # Recording & playback management
-│   ├── control-coordinator.ts  # Bidirectional control management
-│   ├── voice-commands.ts       # Voice command parsing
-│   └── mcp-client.ts           # MCP protocol client (fallback)
-│
-├── playwright-assistant/       # VSCode extension
+├── start-simple.sh           # Startup script (Xvfb + VNC + VSCode)
+├── browser-viewer/           # VSCode extension
 │   ├── src/
-│   │   ├── extension.ts        # Extension activation & commands
-│   │   ├── playwrightViewProvider.ts  # Browser viewer panel
-│   │   └── chatViewProvider.ts # Chat interface panel
-│   └── media/
-│       ├── playwright/         # Browser viewer UI (HTML/JS/CSS)
-│       └── chatbot/            # Chat panel UI
-│
-├── vm/                         # Docker container for sandboxed browser
-│   ├── playwright-server.ts    # Chrome automation server
-│   ├── Dockerfile              # Ubuntu 22.04 + Chrome + VNC
-│   ├── docker-compose.yml      # Service orchestration
-│   └── supervisord.conf        # Process management
-│
-├── openvscode-server-v*/       # Pre-built OpenVSCode binary
-└── start.sh                    # Main startup script
+│   │   ├── extension.ts      # Extension entry point
+│   │   └── browserViewProvider.ts  # Webview with noVNC launcher
+│   └── media/                # noVNC JavaScript libraries
+├── .claude/
+│   └── settings.local.json   # Project Claude settings (DISPLAY=:99)
+├── openvscode-server-v*/     # Pre-built OpenVSCode binary
+└── archived/                 # Old complex architecture (reference)
 ```
 
-## Service Ports
+## Ports
 
-| Service | Port | Description |
-|---------|------|-------------|
-| OpenVSCode | 3000 | Web IDE interface |
-| Backend WebSocket | 8767 | Extension ↔ Backend communication |
-| Chat API | 8766 | Claude API gateway |
-| Docker Playwright | 8765 | VM ↔ Backend (when using --vm) |
-| noVNC | 6080 | Web-based VNC viewer |
-| VNC Direct | 5900 | Direct VNC connection |
-| Chrome DevTools | 9222 | Chrome debugging protocol |
+| Port | Service | Description |
+|------|---------|-------------|
+| 3000 | OpenVSCode | Web-based VSCode IDE |
+| 5900 | x11vnc | VNC server (internal) |
+| 6080 | websockify | noVNC web viewer |
 
-## Features
+## Requirements
 
-### Browser Automation
-- **Live Screenshots**: Automatic refresh at configurable intervals (default 200ms)
-- **Click/Scroll Passthrough**: Interact with the browser through the viewer
-- **Tab Management**: Create, switch, and close browser tabs
-- **Navigation**: URL bar, back/forward/reload buttons
-- **Keyboard Input**: Type text, press keys, modifier combinations
+- Node.js v18+
+- Linux with X11 support (or WSL2)
+- Packages: `xvfb x11vnc novnc websockify`
 
-### AI Integration
-- **Claude Chat**: Context-aware AI assistance with browser state
-- **Streaming Responses**: Real-time response streaming
-- **Voice Commands**: Natural language browser control
-
-### Session Recording
-- **Record Actions**: Capture clicks, typing, navigation
-- **Screenshot Capture**: Automatic screenshots with each action
-- **Playback**: Replay recordings with speed control
-- **Export**: Generate test code from recordings
-
-### Code Generation
-Export recorded sessions to executable test code:
-- **Frameworks**: Playwright, Puppeteer, Selenium
-- **Languages**: TypeScript, JavaScript, Python
-
-### Inspector Mode
-- **Element Selection**: Click to inspect DOM elements
-- **Selector Generation**: CSS, XPath, test ID, role, ARIA label
-- **Bounding Box**: Visual element highlighting
+```bash
+sudo apt-get install xvfb x11vnc novnc websockify
+```
 
 ## Configuration
 
-### Environment Variables
+### Claude Code MCP Server
 
-```bash
-# Required for chat functionality
-export ANTHROPIC_API_KEY="your-api-key"
+The Playwright MCP server is configured globally in `~/.claude.json`:
 
-# Automatically set by start.sh when using --vm
-export USE_DOCKER_PLAYWRIGHT=true
-export DOCKER_PLAYWRIGHT_WS="ws://localhost:8765"
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
 ```
 
-### VSCode Extension Settings
+### Project Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `playwrightAssistant.relayServerUrl` | `ws://localhost:8765` | WebSocket server URL |
-| `playwrightAssistant.screenshotInterval` | `200` | Screenshot refresh interval (ms) |
-| `playwrightAssistant.chatApiUrl` | `http://localhost:8766/chat` | Chat API endpoint |
-| `playwrightAssistant.codeGenFormat` | `playwright` | Code generation format |
-| `playwrightAssistant.codeGenLanguage` | `typescript` | Code generation language |
+The project's `.claude/settings.local.json` sets environment variables:
 
-## Development
+```json
+{
+  "env": {
+    "DISPLAY": ":99",
+    "PLAYWRIGHT_HEADLESS": "false"
+  }
+}
+```
 
-### Build Backend
+## Browser Viewer Extension
+
+The extension adds a globe icon to VSCode's sidebar. Due to browser security restrictions, it can't embed the VNC viewer directly, so it provides a button to open noVNC in a new browser tab.
+
+### Install Extension
 
 ```bash
-cd backend
+cd browser-viewer
 npm install
-npm run build    # Compile TypeScript
-npm run dev      # Development with ts-node
+npm run compile
+npx @vscode/vsce package --allow-missing-repository
 ```
 
-### Build Extension
-
-```bash
-cd playwright-assistant
-npm install
-npm run compile  # Compile TypeScript
-npm run watch    # Watch mode
-```
-
-### Build Docker VM
-
-```bash
-cd vm
-npm install
-npm run build    # Compile TypeScript
-docker-compose build
-docker-compose up -d
-```
-
-## How It Works
-
-### Without Docker (`./start.sh`)
-
-1. Backend relay server starts on ports 8767 (WebSocket) and 8766 (HTTP)
-2. OpenVSCode server starts on port 3000
-3. Extension connects to backend via WebSocket
-4. Backend uses MCP client for browser automation (requires MCP server)
-
-### With Docker (`./start.sh --vm`)
-
-1. Docker container starts with:
-   - Xvfb (virtual display)
-   - x11vnc (VNC server)
-   - noVNC (web VNC)
-   - Chrome with DevTools Protocol
-   - Playwright server (WebSocket on 8765)
-2. Backend connects to Docker's Playwright server
-3. Browser runs in isolated container environment
-4. VNC provides alternative viewing method
-
-## Data Flow
-
-```
-User Action (click in viewer)
-    ↓
-Extension captures event, calculates coordinates
-    ↓
-WebSocket message to backend: { type: 'click', x, y }
-    ↓
-Control Coordinator queues action
-    ↓
-Docker Playwright Client sends to VM: { type: 'click', x, y }
-    ↓
-Playwright Server executes: page.mouse.click(x, y)
-    ↓
-Screenshot captured and broadcast
-    ↓
-Extension receives screenshot, updates viewer
-```
+Then in VSCode: Extensions → ... → Install from VSIX → select `browser-viewer-1.0.0.vsix`
 
 ## Troubleshooting
 
-### Docker container won't start
+### Services not starting
 
 ```bash
-# Check container status
-docker ps -a
+# Check if processes are running
+ps aux | grep -E "Xvfb|x11vnc|websockify"
 
-# View container logs
-docker logs playwright-vm
+# Check if ports are listening
+ss -tlnp | grep -E "5900|6080"
 
-# Check supervisor logs inside container
-docker exec playwright-vm cat /var/log/supervisor/chrome-error.log
+# Clean up stale X locks
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 ```
 
-### Chrome CDP not responding
+### x11vnc Wayland error
 
-The Chrome flags in `vm/supervisord.conf` must include:
-- `--remote-debugging-port=9222`
-- `--remote-debugging-address=0.0.0.0`
-- `--user-data-dir=/tmp/chrome-data`
-
-### Port already in use
-
+If you see "Wayland display server detected", ensure the start script includes:
 ```bash
-# Find process using port
-lsof -i :8765
-
-# Kill process
-kill -9 <PID>
+unset WAYLAND_DISPLAY
 ```
 
-### WebSocket connection failed
+### Browser not appearing in viewer
 
-1. Ensure backend is running: `curl http://localhost:8766/health`
-2. Check if Docker container is healthy: `docker ps`
-3. Verify port mapping: `docker port playwright-vm`
+1. Verify display works: `DISPLAY=:99 xdpyinfo`
+2. Check Playwright is using headed mode (PLAYWRIGHT_HEADLESS=false)
+3. Try opening a test window: `DISPLAY=:99 xterm &`
 
-## Technology Stack
+### noVNC won't connect
 
-| Component | Technology |
-|-----------|------------|
-| IDE Server | OpenVSCode 1.106.3 |
-| Backend | Node.js, TypeScript |
-| Communication | WebSockets (ws), HTTP |
-| Browser Automation | Playwright |
-| AI | Anthropic Claude API |
-| Containerization | Docker, Ubuntu 22.04 |
-| Display | Xvfb, x11vnc, noVNC |
-| Process Management | Supervisor |
+1. Test VNC directly: visit `http://localhost:6080/vnc.html`
+2. Click "Connect" button
+3. Check websockify is running on port 6080
+
+## Comparison: Old vs New Architecture
+
+| Aspect | Old Architecture | New Architecture |
+|--------|------------------|------------------|
+| Lines of code | 2100+ (backend alone) | ~250 total |
+| Components | Custom relay, chat UI, recorder | Just VNC stack + extension |
+| Chat interface | Custom implementation | Claude Code CLI (built-in) |
+| Browser control | Custom WebSocket protocol | @playwright/mcp (official) |
+| Complexity | High | Low |
 
 ## License
 
-[Add your license here]
+MIT

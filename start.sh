@@ -143,8 +143,10 @@ fi
 echo -e "${BLUE}Starting backend services...${NC}"
 cd "$BACKEND_DIR"
 
-# Set environment variables
-export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+# Load environment variables from .env if it exists
+if [ -f "$BACKEND_DIR/.env" ]; then
+    export $(grep -v '^#' "$BACKEND_DIR/.env" | xargs)
+fi
 
 # When using VM, tell backend to use Docker Playwright client
 if [ "$USE_VM" = true ]; then

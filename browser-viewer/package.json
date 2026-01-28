@@ -1,0 +1,65 @@
+{
+  "name": "browser-viewer",
+  "displayName": "Browser Viewer",
+  "description": "Passive browser viewer that displays Playwright screenshots",
+  "version": "1.0.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "browserViewer",
+          "title": "Browser",
+          "icon": "$(globe)"
+        }
+      ]
+    },
+    "views": {
+      "browserViewer": [
+        {
+          "type": "webview",
+          "id": "browserViewer.view",
+          "name": "Browser View",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "browserViewer.refresh",
+        "title": "Refresh Browser View",
+        "icon": "$(refresh)"
+      }
+    ],
+    "configuration": {
+      "title": "Browser Viewer",
+      "properties": {
+        "browserViewer.websocketPort": {
+          "type": "number",
+          "default": 6080,
+          "description": "noVNC websocket port"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "files": [
+    "out/**/*",
+    "media/**/*"
+  ],
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}

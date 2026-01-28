@@ -270,12 +270,15 @@ export class DockerPlaywrightClient extends EventEmitter {
     }
 
     /**
-     * Click at coordinates
+     * Click at coordinates or element ref
      */
     async click(options: ClickOptions): Promise<boolean> {
         try {
             const action: ActionMessage = { type: 'click' };
-            if (options.x !== undefined && options.y !== undefined) {
+            if (options.ref) {
+                // Use ref as selector for element-based clicking
+                action.selector = `[data-ref="${options.ref}"]`;
+            } else if (options.x !== undefined && options.y !== undefined) {
                 action.x = options.x;
                 action.y = options.y;
             }
