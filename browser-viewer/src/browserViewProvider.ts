@@ -112,11 +112,12 @@ export class BrowserViewProvider implements vscode.WebviewViewProvider {
       width: 100%;
       background: #000;
       overflow: hidden;
+      position: relative;
     }
     #screen canvas {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
     }
     .fallback {
       flex: 1;
@@ -212,13 +213,35 @@ export class BrowserViewProvider implements vscode.WebviewViewProvider {
         rfb = new RFB(screen, wsUrl, {
           scaleViewport: true,
           resizeSession: false,
-          clipViewport: true
+          clipViewport: false
         });
 
         rfb.addEventListener('connect', () => {
           updateStatus('connected', 'Connected');
           screen.classList.remove('hidden');
           fallback.classList.add('hidden');
+
+          // Force rescale when sidebar resizes (debounced)
+          let resizeTimeout;
+          const resizeObserver = new ResizeObserver(() => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+              if (rfb) {
+                // Toggle scaleViewport to force noVNC to recalculate dimensions
+                rfb.scaleViewport = false;
+                rfb.scaleViewport = true;
+              }
+            }, 50);
+          });
+          resizeObserver.observe(screen);
+
+          // Initial rescale after connection settles
+          setTimeout(() => {
+            if (rfb) {
+              rfb.scaleViewport = false;
+              rfb.scaleViewport = true;
+            }
+          }, 100);
         });
 
         rfb.addEventListener('disconnect', (e) => {
