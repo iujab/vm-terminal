@@ -1,7 +1,7 @@
 {
   "name": "browser-viewer",
   "displayName": "Browser Viewer",
-  "description": "Passive browser viewer that displays Playwright screenshots",
+  "description": "Multi-terminal browser viewer for Playwright with isolated X11 displays",
   "version": "1.0.0",
   "publisher": "local",
   "engines": {
@@ -25,12 +25,21 @@
         {
           "type": "webview",
           "id": "browserViewer.view",
-          "name": "Browser View",
+          "name": "Browser Terminals",
           "visibility": "visible"
         }
       ]
     },
     "commands": [
+      {
+        "command": "browserViewer.createTerminal",
+        "title": "Create Browser Terminal",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "browserViewer.showViewer",
+        "title": "Show Browser Viewer for Active Terminal"
+      },
       {
         "command": "browserViewer.refresh",
         "title": "Refresh Browser View",
@@ -40,10 +49,20 @@
     "configuration": {
       "title": "Browser Viewer",
       "properties": {
-        "browserViewer.websocketPort": {
+        "browserViewer.baseDisplayNumber": {
+          "type": "number",
+          "default": 99,
+          "description": "Starting X11 display number for terminal isolation"
+        },
+        "browserViewer.baseWebsocketPort": {
           "type": "number",
           "default": 6080,
-          "description": "noVNC websocket port"
+          "description": "Starting WebSocket port for noVNC connections"
+        },
+        "browserViewer.autoCreateViewer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create viewer panel when creating browser terminal"
         }
       }
     }
